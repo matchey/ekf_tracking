@@ -9,6 +9,7 @@ project(ekf_tracking)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
+  sensor_msgs
   roscpp
   tf
   visualization_tools
@@ -16,6 +17,17 @@ find_package(catkin REQUIRED COMPONENTS
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
+
+find_package(cmake_modules)
+
+find_package(PCL 1.8.0 REQUIRED)
+include_directories(${PCL_INCLUDE_DIRS})
+link_directories(${PCL_LIBRARY_DIRS})
+add_definitions(${PCL_DEFINITIONS})
+
+# include_directories(/usr/include/eigen3)
+find_package(Eigen3 REQUIRED COMPONENTS system)
+include_directories(${Eigen3_INCLUDE_DIRS})
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -121,12 +133,14 @@ include_directories(
 	${catkin_INCLUDE_DIRS}
 )
 
+SET(CMAKE_CXX_FLAGS "-std=c++11 -O2 -g -Wall ${CMAKE_CXX_FLAGS}")
+
 ## Declare a C++ library
 # add_library(${PROJECT_NAME}
 #   src/${PROJECT_NAME}/ekf_tracking.cpp
 # )
-# add_library(clsuster src/cluster.cpp)
-add_library(tracker src/tracker src/cluster.cpp)
+# add_library(clsuster src/cluster.cpp src/ekf.cpp)
+add_library(tracker src/tracker src/cluster.cpp src/ekf.cpp)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
@@ -137,6 +151,7 @@ add_library(tracker src/tracker src/cluster.cpp)
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 # add_executable(${PROJECT_NAME}_node src/ekf_tracking_node.cpp)
+add_executable(test_tracking src/test.cpp src/tracker src/cluster.cpp src/ekf.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -152,6 +167,7 @@ add_library(tracker src/tracker src/cluster.cpp)
 # target_link_libraries(${PROJECT_NAME}_node
 #   ${catkin_LIBRARIES}
 # )
+target_link_libraries(test_tracking ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 #############
 ## Install ##
