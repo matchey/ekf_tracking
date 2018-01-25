@@ -1,48 +1,43 @@
 
 //
-// include: cluster.h
+// include: cluster_kf.h
 //
 // last update: '18.1.19
 // author: matchey
 //
 // memo:
 //   tracking対象のそれぞれのクラスタclass
-//   ekfをもちいて計算(二次元で推定)
-//   位置のみを使用(<-- 特徴量をいれる)
+//   kfをもちいて計算(二次元で推定)
+//   位置のみを使用
 //
 
-#ifndef CLUSTER_H
-#define CLUSTER_H
+#ifndef CLUSTER_KF_H
+#define CLUSTER_KF_H
 
 #include <ros/ros.h>// ostream等
 #include <geometry_msgs/Point.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
-#include "ekf_tracking/ekf.h"
+// #include "mmath/differential.h"
+#include "mmath/pca.h"
+#include "ekf_tracking/kf.h"
 
 class Cluster
 {
 	//feature <-- 今後増やしていくけるように.. 曲率とかサイズとか色とか(Trackerの方で判断)
 	// int id;
-	// geometry_msgs::Point position;//struct Point2Dでいまは十分だけど今後高さを特徴とできるように
-	// double linear;
-	// double angular;
-	// double velocity;
 	double likelihood;
-	// bool flag_obs;
 
-	ExtendedKalmanFilter ekf;
-	Eigen::Vector5d x;	    // システム(系)の状態推定値(x, y, θ, v, ω) 5x1
-	// Eigen::Vector2d u;	// 制御無し
-	// Eigen::Vector2d G;  	// 時間遷移モデル(x'', y'') 2x1
-	Eigen::Matrix5d P;  	// 誤差の共分散行列(推定値の精度) 5x5
-	// Eigen::Matrix2d Q;  	// 共分散行列(時間変化) 2x2
-	Eigen::Matrix5d R;		// 共分散行列(観測の信頼度) 3x3
-	// Eigen::Matrix3d R;		// 共分散行列(観測の信頼度) 3x3
-	// Eigen::Vector3d obs;	// 観測(x, y, θ) 3x1
-	// Eigen::Vector3d obs;	// 観測(x, y, θ) 3x1
-	Eigen::Vector5d obs;	// 観測(x, y, θ, v, ω) 5x1
+	KalmanFilter kf;
+	Eigen::Vector4d x;	    // システム(系)の状態推定値(x, y, vx, vy) 4x1
+	Eigen::Vector2d G;  	// 時間遷移モデル(x'', y'') 2x1
+	Eigen::Matrix4d P;  	// 誤差の共分散行列(推定値の精度) 4x4
+	Eigen::Matrix2d Q;  	// 共分散行列(時間変化) 2x2
+	Eigen::Matrix2d R;		// 共分散行列(観測の信頼度) 2x2
+	Eigen::Vector2d obs;	// 観測(x, y) 2x1
+
+	Eigen::Vector2d y;	    // 推定値から求まる系の状態(v, θ) 2x1
 
 	int lifetime;
 	int age_; //トラックが最初に検出されてからのフレーム数
@@ -51,14 +46,17 @@ class Cluster
 
 	ros::Time current_time, last_time; // Trackerでdt出したほうが高速だけど
 
-	void measurement(const pcl::PointXYZ&);
-	void update();
+	// Differential vx;
+	// Differential vy;
+	PrincipalComponentAnalysis pca;
+
+	template<class T_p>
+	void initialize(const T_p&, const double&, const double&);
+	void setY();
 
 	public:
 	Cluster();
 	Cluster(const pcl::PointXYZ&, const double&, const double&);
-	void initialize(const geometry_msgs::Point&);
-	void initialize(const pcl::PointXYZ&);
 	void measurementUpdate(const pcl::PointXYZ&);
 	void predict();
 	void setParams();

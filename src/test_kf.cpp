@@ -6,7 +6,7 @@
 #include <tf/transform_broadcaster.h>
 #include <pcl_conversions/pcl_conversions.h>
 // #include "visualization_tools/bounding_box.h"
-#include "ekf_tracking/tracker.h"
+#include "ekf_tracking/tracker_kf.h"
 
 using namespace std;
 
@@ -26,9 +26,10 @@ class HumanTracker
 		sub = n.subscribe<sensor_msgs::PointCloud2>("/human_recognition/positive_position", 1,
 				&HumanTracker::humanCallback, this);
 
+		tracker.setIncrease();
 		tracker.setThresholdSame(1.5);
 		tracker.setThresholdErase(0.15);
-		tracker.setSigma(100.0, 0.15); // P, R
+		tracker.setSigma(100.0, 0.01); // P, R
 		tracker.setFrameID("/velodyne");
 	}
 
@@ -42,27 +43,24 @@ class HumanTracker
 
 void HumanTracker::tracking()
 {
-	// pcl::PointCloud<pcl::PointXYZ>::Ptr pc1(new pcl::PointCloud<pcl::PointXYZ>);
-	// for(auto it = pc->points.begin(); it != pc->points.end(); ++it){
-	// 	pc1->push_back(*it);
-	// 	break;
-	// }
 	tracker.setPosition(pc);
 
+	cout << "\033[2J"; //画面クリア
+	printf("\033[%d;%dH", 1, 1); //カーソル位置を、高さ1行目、横1行目に移動
 	cout << tracker << endl;
 	tracker.pubTrackingPoints();
 	tracker.pubVelocityArrows();
 	tracker.pubErrorEllipses();
-	tracker.pubLinkLines();
-	cout << "pc size : " << pc->points.size() << endl;
-	cout << "================\n" << endl;
-	cout << "================" << endl;
+	// tracker.pubLinkLines();
+	// cout << "pc size : " << pc->points.size() << endl;
+	// cout << "================\n" << endl;
+	// cout << "================" << endl;
 }
 
 int main(int argc, char** argv)
 {
-	ros::init(argc, argv, "test_tracking");
-	cout << "ekf tracking" << endl;
+	ros::init(argc, argv, "test_tracking_kf");
+	cout << "kf tracking" << endl;
 
 	HumanTracker ht;
 

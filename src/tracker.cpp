@@ -15,13 +15,54 @@
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include "ekf_tracking/tracker.h"
+#include "mmath/common.h"
 
 using namespace std;
 
 Tracker::Tracker()
-	: sigma_p(0.05), sigma_r(0.05), SDTH(0.6), ELTH(0.5), frame_id("/map")
+	: sigma_p(0.05), sigma_r(0.1), SDTH(0.6), ELTH(0.5), frame_id("/map")
 {
-	pub_track = n.advertise<sensor_msgs::PointCloud2>("tracking_point", 1);
+	pub_track = n.advertise<sensor_msgs::PointCloud2>("/tracking_points", 1);
+	pub_arrow = n.advertise<visualization_msgs::MarkerArray>("/velocity_arrows", 1);
+	pub_ellipse = n.advertise<visualization_msgs::MarkerArray>("/error_ellipses", 1);
+	pub_links = n.advertise<visualization_msgs::MarkerArray>("/link_lines", 1);
+
+	link.header.stamp = ros::Time::now();
+	link.header.frame_id = "/velodyne";
+
+	link.ns = "/cluster/links";
+	link.id = 0;
+
+	link.type = visualization_msgs::Marker::LINE_LIST;
+	link.action = visualization_msgs::Marker::ADD;
+
+	link.pose.orientation.w = 1.0;
+
+	link.scale.x = 1.0;
+
+	link.color.b = 1.0;
+	link.color.r = 0.6;
+	link.color.a = 1.0;
+
+	link.lifetime = ros::Duration(1.0);
+}
+
+int Tracker::getID(const int& idx)
+{
+	int id = 0;
+	bool found = false;
+
+	for(auto it = clusters.begin(); it != clusters.end(); ++it, ++id){
+		if(id == idx){
+			id = it->first;
+			found = true;
+			break;
+		}
+	}
+
+	if(!found) id = -1;
+
+	return id;
 }
 
 int Tracker::getNewID()
@@ -66,136 +107,162 @@ void Tracker::transform(pcl::PointCloud<pcl::PointXYZ>::Ptr& pc)
 	}
 }
 
-void Tracker::associate(const pcl::PointCloud<pcl::PointXYZ>::Ptr& pc)
+int Tracker::getCost(const Cluster& cluster, const pcl::PointXYZ& p)
 {
-	// int id;
-	// pcl::PointCloud<pcl::PointXYZ>::Ptr pc_clusters(new pcl::PointCloud<pcl::PointXYZ>);
-	// for(auto it = clusters.begin(); it != clusters.end(); ++it){
-	// 	it->getPoint(pc_clusters);
-	// 	// it->second.getPoint(pc_clusters);
-	// }
-	// if(pc_clusters->points.size()){
-	// 	pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
-	// 	kdtree.setInputCloud(pc_clusters);
-	// 	std::vector<int> pointIdx;
-	// 	std::vector<float> pointRadiusSquaredDistance;
-	// 	for(auto it = pc->points.begin(); it != pc->points.end(); ++it){
-	// 		it->z = 0.0;
-	// 		switch(kdtree.radiusSearch(*it, SDTH, pointIdx, pointRadiusSquaredDistance)){
-	// 			case 0:
-	// 				{
-	// 					// ids.push_back(-1);
-	// 					id = getNewID();
-	// 					Cluster cluster(*it, sigma_p, sigma_r);
-	// 					// clusters[id] = cluster;
-	// 					// clusters[id].measurementUpdate(*it);
-	// 					clusters.push_back(cluster);
-	// 					ids.push_back(id);
-	// 					ids_sorted.push_back(id);
-	// 					sort(ids_sorted.begin(), ids_sorted.end());
-	// 					break;
-	// 				}
-	// 			case 1:
-	// 				{
-	// 					// ids.push_back(pointIdx[0]);
-	// 					clusters[pointIdx[0]].measurementUpdate(*it);
-	// 					break;
-	// 				}
-	// 			default:
-	// 				{
-	// 					// ids.push_back(-1);
-	// 					break;
-	// 				}
-	// 		}
-	// 	}
-	// }else{
-	// 	for(auto it = pc->points.begin(); it != pc->points.end(); ++it){
-	// 		id = getNewID();
-	// 		Cluster cluster(*it, sigma_p, sigma_r);
-	// 		clusters.push_back(cluster);
-	// 		ids.push_back(id);
-	// 		ids_sorted.push_back(id);
-	// 	}
-	// }
-	// int id = 0;/*{{{*/
-	// double dist;
-	// double dist_min = SDTH;
-	// set<int> found; // 遅いからset使うの微妙
-
-	// ids.clear();
-	// for(auto p = pc->points.begin(); p != pc->points.end(); ++p){
-	// 	for(auto it = clusters.begin(); it != clusters.end(); ++it){
-	// 		dist = it->second.getDist(*p);
-	// 		if(dist < dist_min){
-	// 			dist_min = dist;
-	// 			id = it->first;
-	// 		}
-	// 	}
-	// 	if(dist_min != SDTH){
-	// 		if(!found.insert(id).second){
-	// 			if(1){
-	// 				ids.push_back(id);
-	// 			}else{
-	// 				ids.push_back(-1);
-	// 			}
-	// 		}
-	// 	}else{
-	// 		ids.push_back(-1);
-	// 	}
-	// }/*}}}*/
-
-	// for(auto it = pc->points.begin(); it != pc->points.end(); ++it){
-	// 	it->z = 0.0;
-	// }
-	// pcl::PointXYZ p;
-
-	// nearest.clear();/*{{{*/
-	// for(auto it = clusters.begin(); it != clusters.end(); ++it){
-	// 	it->second.getPoint(p);
-	// 	switch(kdtree.radiusSearch(p, SDTH, pointIdx, pointRadiusSquaredDistance)){
-	// 		case 0:
-	// 			nearest.push_back(-1);
-	// 			break;
-	// 		case 1:
-	// 			nearest.push_back(pointIdx);
-	// 			break;
-	// 		default:
-	// 			nearest.push_back(-1);
-	// 			// for (size_t i = 0; i < pointIdx.size (); ++i)
-	// 			// 	std::cout << "    "  <<   pc->points[ pointIdx[i] ].x 
-	// 			// 		      << " " << pc->points[ pointIdx[i] ].y 
-	// 			// 		      << " " << pc->points[ pointIdx[i] ].z 
-	// 			// 		      << " (squared distance: " << pointRadiusSquaredDistance[i]
-	// 			// 		      << ")" << std::endl;
-	// 			break;
-	// 	}
-	// }/*}}}*/
+	// virtual_cluster = cluster;
+	// // double pre_likelihood = virtual_cluster.getLikelihood();
+    //
+	// virtual_cluster.measurementUpdate(p);
+	// virtual_cluster.predict();
+    //
+	// // return 100 * cluster.getDist(p) + (virtual_cluster.getLikelihood() - pre_likelihood);
+	// // return 100 * cluster.getDist(p) + virtual_cluster.getLikelihood();
+	return int(100.0 * cluster.getDist2ObsLast(p));
+	// return int(100.0 * cluster.getDist(p));
 }
 
-void Tracker::update(const pcl::PointXYZ &p)
+int Tracker::getCost(const Cluster& cluster)
 {
-	int id = 0;
-	// double likelihood = 0.0;
-	// double likelihood_min = 100;
-	// double dist_min = clusters.begin().second.getDist();
-	double dist = 0.0;
-	double dist_min = SDTH;
+	// virtual_cluster = cluster;
+	// // double pre_likelihood = virtual_cluster.getLikelihood();
+    //
+	// virtual_cluster.predict();
+    //
+	// // return 100 * SDTH + virtual_cluster.getLikelihood();
+	// // return 100 * SDTH + (virtual_cluster.getLikelihood() - pre_likelihood);
+	return int(100.0 * SDTH);
+}
 
-	for(auto it = clusters.begin(); it != clusters.end(); ++it){
-		// dist = it->getDist(p);
-		dist = it->second.getDist(p);
-		if(dist < dist_min){
-			dist_min = dist;
-			id = it->first;
+int Tracker::getCost(const pcl::PointXYZ& p)
+{
+	// virtual_cluster = Cluster(p, sigma_p, sigma_r);
+    //
+	// virtual_cluster.predict();
+    //
+	// // return 100 * SDTH + virtual_cluster.getLikelihood();
+	return int(100.0 * SDTH);
+}
+
+int Tracker::getCost()
+{
+	// virtual_cluster = Cluster();
+    //
+	// // virtual_cluster.predict();
+    //
+	// // return 100 * SDTH + virtual_cluster.getLikelihood();
+	return int(100.0 * SDTH);
+}
+
+void Tracker::hungarianSolve(Eigen::MatrixXi& M)
+{
+	const int Inf = 1e6;
+
+	int n = M.rows(), p, q;
+	vector<int> fx(n, Inf), fy(n, 0);
+	vector<int> x(n, -1), y(n, -1);
+
+	for(int i = 0; i < n; ++i){
+		for(int j = 0; j < n; ++j){
+			fx[i] = min(fx[i], M(i, j));
 		}
 	}
-	if(dist_min != SDTH){
-		clusters[id].measurementUpdate(p);
-	}else{
-		id = getNewID();
-		Cluster cluster(p, sigma_p, sigma_r);
-		clusters[id] = cluster;
-		clusters[id].measurementUpdate(p);
+
+	for(int i = 0; i < n; ){
+		vector<int> t(n, -1), s(n+1, i);
+		for(p = q = 0; p <= q && x[i] < 0; ++p){
+			for(int k = s[p], j = 0; j < n && x[i] < 0; ++j){
+				if (fx[k] + fy[j] == M(k, j) && t[j] < 0){
+					s[++q] = y[j], t[j] = k;
+					if(s[q] < 0){
+						for(p = j; p >= 0; j = p){
+							y[j] = k = t[j], p = x[k], x[k] = j;
+						}
+					}
+				}
+			}
+		}
+		if(x[i] < 0){
+			int d = Inf;
+			for(int k = 0; k <= q; ++k){
+				for(int j = 0; j < n; ++j){
+					if(t[j] < 0) d = max(d, fx[s[k]] + fy[j] - M(s[k], j));
+				}
+			}
+			for(int j = 0; j < n; ++j) fy[j] += (t[j] < 0 ? 0 : d);
+			for(int k = 0; k <= q; ++k) fx[s[k]] -= d;
+		}else ++i;
+	}
+
+	neighbors.resize(n);
+	for(int i=0; i<n; ++i){
+		neighbors[i] = getID(y[i]);
+		cout << "neighbors[" << i << "] : " << neighbors[i] << endl;
+	}
+}
+
+void Tracker::associate(const pcl::PointCloud<pcl::PointXYZ>::Ptr& pos)
+{
+	const int c_size = clusters.size();
+	const int p_size = pos->points.size();
+	const int m_size = c_size + p_size;
+
+	cout << "pos.points.size : " << pos->points.size() << endl;
+	cout << "c, p, m  : " << c_size << ", " << p_size << ", " << m_size << endl; 
+	Eigen::MatrixXi M(m_size, m_size);
+
+	for(int i=0; i<m_size; ++i){
+		for(int j=0; j<m_size; ++j){
+			if(i < c_size && j < p_size){
+				M(i, j) = getCost(clusters[getID(i)], pos->points[j]);
+			}else if(i < c_size && !(j < p_size)){
+				M(i, j) = getCost(clusters[getID(i)]);
+			}else if(!(i < c_size) && j < p_size){
+				M(i, j) = getCost(pos->points[i]);
+			}else{ // !(i < c_size) && !(j < p_size)
+				M(i, j) = getCost();
+			}
+		}
+	}
+
+	cout << "M :\n" << M << endl;
+	hungarianSolve(M);
+}
+
+void Tracker::update(const pcl::PointCloud<pcl::PointXYZ>::Ptr& pc)
+{
+	int c_id;
+
+	for(auto it = pc->points.begin(); it != pc->points.end(); ++it){
+		c_id = neighbors[it - pc->points.begin()];
+		auto itr = clusters.find(c_id);
+		if(itr != clusters.end()){
+			link.header.stamp = ros::Time::now();
+			link.id = itr->first;
+			link.color.r = 0.0 + 0.5 * (itr->first % 3);
+			link.color.g = 0.4 + 0.1 * (itr->first % 7);
+			link.color.b = 0.2 + 0.2 * (itr->first % 5);
+			itr->second.getLinkLines(link, *it);
+			links.markers.push_back(link);
+			link.points.clear();
+			itr->second.measurementUpdate(*it);
+		}else{
+			// link.header.stamp = ros::Time::now();
+			// link.id = getNewID();
+			// link.color.r = 0.0;
+			// link.color.g = 1.0;
+			// link.color.b = 0.0;
+			// geometry_msgs::Point p;
+			// p.x = it->x;
+			// p.y = it->y;
+			// link.points.push_back(p);
+			// p.x += 1.0;
+			// p.y += 1.0;
+			// link.points.push_back(p);
+			// links.markers.push_back(link);
+			// link.points.clear();
+			Cluster cluster(*it, sigma_p, sigma_r);
+			clusters[getNewID()] = cluster;
+		}
 	}
 }
 
@@ -220,72 +287,58 @@ void Tracker::setFrameID(const string frame_name)
 	frame_id = frame_name;
 }
 
-void Tracker::setPosition(pcl::PointCloud<pcl::PointXYZ>::Ptr& pc)
+void Tracker::setPosition(const pcl::PointCloud<pcl::PointXYZ>::Ptr& pc)
 {
+	int lifetime;
 	// transform(pc);
 	associate(pc);
+	update(pc);
 
 	// auto id = ids.begin();
 	auto it = clusters.begin();
 	while( it != clusters.end()){
+		cout << "\nclusters[" << it->first << "]" << endl;
+		// cout << it->second << endl;
 		it->second.predict();
 		// it->predict();
-		if(it->second.getLikelihood() < ELTH){
-		// if(it->getLikelihood() < ELTH){
-			clusters.erase(it++);
+		if(it->second.getLikelihood() < ELTH ||
+				(it->second.age() < 5 && 5 < it->second.consecutiveInvisibleCount()) ||
+				10 < it->second.consecutiveInvisibleCount()){
+			lifetime = it->second.getLifetime();
+			cout << "life : " << lifetime << endl;
+			if(lifetime < 1){
+				clusters.erase(it++);
+				cout << "== ERASED " << distance(clusters.begin(), it) << " ==" << endl;
+			}else{
+				it->second.setLifetime(lifetime - 1);
+				++it;
+			}
 			// ids.erase(id++);
 		}else{
+			it->second.setLifetime(1);
 			++it;
 			// ++id;
 		}
 	}
-	// ids_sorted = ids;
-	// sort(ids_sorted.begin(), ids_sorted.end());
-	// for(auto it = pc->points.begin(); it != pc->points.end(); ++it){
-	// }
-    //
-	// for(auto it = clusters.begin(); it != clusters.end(); ++it){
-	// }
-	
-	// int i = 0;
-	// auto it = clusters.begin();
-	// while(it != clusters.end()){
-	// 	// update(*it);
-	// 	// if(ids[i]+1){
-	// 	// 	clusters[ids[i]].measurementUpdate(pc->points[nearest[i]]);
-	// 	// }else{
-	// 	// 	id = getNewID();
-	// 	// 	Cluster cluster(p, sigma_p, sigma_r);
-	// 	// 	clusters[id] = cluster;
-	// 	// 	clusters[id].measurementUpdate(p);
-	// 	// }
-	// 	it->second.predict();
-	// 	if(it->second.getLikelihood() < ELTH){
-	// 		clusters.erase(it++);//mapは要素を変更したときに以前までのiteが無効に
-	// 	}else{
-	// 		++it;
-	// 	}
-	// 	++i;
-	// }
 }
 
 template<class T_pc>
-void Tracker::setPosition(T_pc pc)
+void Tracker::setPosition(const T_pc &pc)
 {
 	pcl::PointCloud<pcl::PointXYZ>::Ptr pc_xyz(new pcl::PointCloud<pcl::PointXYZ>);
 	pcl::copyPointCloud(*pc, *pc_xyz);
 	
 	setPosition(pc_xyz);
 }
-template void Tracker::setPosition<pcl::PointCloud<pcl::PointNormal>::Ptr&>(pcl::PointCloud<pcl::PointNormal>::Ptr&);
-template void Tracker::setPosition<pcl::PointCloud<pcl::PointXYZINormal>::Ptr&>(pcl::PointCloud<pcl::PointXYZINormal>::Ptr&);
-template void Tracker::setPosition<pcl::PointCloud<pcl::PointXYZRGB>::Ptr&>(pcl::PointCloud<pcl::PointXYZRGB>::Ptr&);
+template void Tracker::setPosition<pcl::PointCloud<pcl::PointNormal>::Ptr>(const pcl::PointCloud<pcl::PointNormal>::Ptr&);
+template void Tracker::setPosition<pcl::PointCloud<pcl::PointXYZINormal>::Ptr>(const pcl::PointCloud<pcl::PointXYZINormal>::Ptr&);
+template void Tracker::setPosition<pcl::PointCloud<pcl::PointXYZRGB>::Ptr>(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr&);
 
 void Tracker::setParams()
 {
 }
 
-void Tracker::pubTrackPoint()
+void Tracker::pubTrackingPoints()
 {
 	sensor_msgs::PointCloud2 pc2;
 	pcl::PointCloud<pcl::PointNormal>::Ptr pc(new pcl::PointCloud<pcl::PointNormal>);
@@ -295,8 +348,10 @@ void Tracker::pubTrackPoint()
 	// auto id = ids.begin();
 	// while(id != ids.end()){
 	for(auto it = clusters.begin(); it != clusters.end(); ++it){
-		it->second.getTrackPoint(pc, it->first);
-		// (it++)->getTrackPoint(pc, *(id++));
+		if(it->second.totalVisibleCount() > 1){
+			it->second.getTrackingPoint(pc, it->first);
+		}
+		// (it++)->getTrackingPoint(pc, *(id++));
 	}
 	// pc->header.frame_id = "/map";
 	pc->header.frame_id = frame_id;
@@ -304,6 +359,45 @@ void Tracker::pubTrackPoint()
 	pc2.header.stamp = ros::Time::now();
 
 	pub_track.publish(pc2);
+}
+
+void Tracker::pubVelocityArrows()
+{
+	visualization_msgs::MarkerArray arrows;
+
+	for(auto it = clusters.begin(); it != clusters.end(); ++it){
+		if(it->second.totalVisibleCount() > 10){
+			it->second.getVelocityArrow(arrows, it->first);
+		}
+	}
+
+	if(arrows.markers.size()){
+		pub_arrow.publish(arrows);
+	}
+}
+
+void Tracker::pubErrorEllipses()
+{
+	visualization_msgs::MarkerArray ellipses;
+
+	for(auto it = clusters.begin(); it != clusters.end(); ++it){
+		if(it->second.totalVisibleCount() > 10){
+			it->second.getErrorEllipse(ellipses, it->first);
+		}
+	}
+
+	if(ellipses.markers.size()){
+		pub_ellipse.publish(ellipses);
+	}
+}
+
+void Tracker::pubLinkLines()
+{
+
+	if(links.markers.size()){
+		pub_links.publish(links);
+	}
+	links.markers.clear();
 }
 
 ostream& operator << (ostream &os, const Tracker &tracker)
@@ -321,8 +415,7 @@ ostream& operator << (ostream &os, const Tracker &tracker)
 	   os << "  cluster[" << it->first << "]\n" 
 	      << it->second << "\n";
 	}
-	os << endl;
-
+	// os << endl;
 	return os;
 }
 

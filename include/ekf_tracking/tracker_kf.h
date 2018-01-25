@@ -15,7 +15,7 @@
 #define TRACKER_H
 
 // #include <unordered_map>
-#include "ekf_tracking/cluster.h"
+#include "ekf_tracking/cluster_kf.h"
 
 class Tracker
 {
@@ -25,24 +25,21 @@ class Tracker
 	ros::Publisher pub_ellipse;
 	ros::Publisher pub_links;
 
-	visualization_msgs::MarkerArray links;
 	visualization_msgs::Marker link;
+	visualization_msgs::MarkerArray links;
 
-	std::map<int, Cluster> clusters; // 走査遅いからmap使うのよくない
-	// std::vector<Cluster> clusters;
-	// std::vector<int> ids;
-	// std::vector<int> ids_sorted;
+	std::map<int, Cluster> clusters; // 走査遅いからmap使うのよくない?
 	Cluster virtual_cluster;
-	// int size;
 	double sigma_p; // conv of P(init)
 	double sigma_r; // conv of R(obs)
 	double SDTH; // same dist threshold
 	double ELTH; // erase likelihood threshold
 	std::string frame_id;
-	// std::vector<int> ids;
-	// std::vector< std::vector<int> > ids;
 	std::vector<int> neighbors;
+	bool isIncrease;
 
+	int getID(const int&);
+	int getNewID();
 	int getCost(const Cluster&, const pcl::PointXYZ&);
 	int getCost(const Cluster&);
 	int getCost(const pcl::PointXYZ&);
@@ -50,12 +47,12 @@ class Tracker
 	void hungarianSolve(Eigen::MatrixXi&);
 	void associate(const pcl::PointCloud<pcl::PointXYZ>::Ptr&);
 	void update(const pcl::PointCloud<pcl::PointXYZ>::Ptr&);
-	int getID(const int&);
-	int getNewID();
 	void transform(pcl::PointCloud<pcl::PointXYZ>::Ptr&);
 
 	public:
 	Tracker();
+	void setIncrease();
+	void setIncrease(const bool);
 	void setSigma(const double&, const double&); //init P, R
 	void setThresholdSame(const double&);
 	void setThresholdErase(const double&);

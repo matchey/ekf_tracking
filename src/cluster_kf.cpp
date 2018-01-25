@@ -1,6 +1,6 @@
 
 //
-// src: cluster.cpp
+// src: cluster_kf.cpp
 //
 // last update: '18.1.19
 // author: matchey
@@ -13,209 +13,68 @@
 #include <Eigen/Dense> // for EigenSolver
 #include "mmath/common/angles.h"
 #include "mmath/binarion.h"
-#include "mmath/pca.h"
-#include "mmath/differential.h"
-#include "ekf_tracking/cluster.h"
+#include "ekf_tracking/cluster_kf.h"
 
 using namespace std;
 
 Cluster::Cluster()
 	: likelihood(1.0), lifetime(10), age_(0), totalVisibleCount_(0), consecutiveInvisibleCount_(0)
+	  //, vx(x(0)), vy(x(1))
 {
-	last_time = ros::Time::now();
-	current_time = ros::Time::now();
-
-	P << 0.05,    0,   0,   0,   0,
-	        0, 0.05,   0,   0,   0,
-	        0,    0, 1.0,   0,   0,
-	        0,    0,   0, 1.0,   0,
-	        0,    0,   0,   0, 1.0;
-
-	// R << 0.05,    0,    0,
-	//         0, 0.05,    0,
-	// 		0,    0, 0.05;
+	geometry_msgs::Point p;
+	p.x = p.y = 0.0;
+	initialize(p, 10.0, 0.01);
 }
 
 Cluster::Cluster(const pcl::PointXYZ &p, const double &sig_p, const double &sig_r)
 	: likelihood(1.0), lifetime(10), age_(0), totalVisibleCount_(0), consecutiveInvisibleCount_(0)
+	  //, vx(x(0)), vy(x(1))
 {
-	current_time = ros::Time::now();
-	last_time = ros::Time::now();
-
-	x << p.x, p.y, 0.0, 0.0, 0.0;
-
-	obs(0) = p.x;
-	obs(1) = p.y;
-
-	P << sig_p,     0,     0,     0,     0,
-	         0, sig_p,     0,     0,     0,
-	         0,     0, 100.0,     0,     0,
-	         0,     0,     0, 100.0,     0,
-	         0,     0,     0,     0, 100.0;
-
-	R << sig_r,      0,     0,     0,     0,
-	         0,  sig_r,     0,     0,     0,
-		     0,      0, sig_r,     0,     0,
-	         0,      0,     0, sig_r,     0,
-	         0,      0,     0,     0, sig_r;
-}
-
-void Cluster::initialize(const geometry_msgs::Point &p)
-{
-	x << p.x, p.y, 0.0, 0.0, 0.0;
-
-	P << 0.01,    0,   0,   0,   0,
-	        0, 0.01,   0,   0,   0,
-	        0,    0, 1.0,   0,   0,
-	        0,    0,   0, 1.0,   0,
-	        0,    0,   0,   0, 1.0;
-
-	// R <<  0.1,    0,    0,
-	//         0,  0.1,    0,
-	// 		0,    0,  0.1;
-
-	age_ = totalVisibleCount_ = consecutiveInvisibleCount_ = 0;
-}
-
-void Cluster::initialize(const pcl::PointXYZ &p)
-{
-	x << p.x, p.y, 0.0, 0.0, 0.0;
-
-	P << 0.05,    0,   0,   0,   0,
-	        0, 0.05,   0,   0,   0,
-	        0,    0, 1.0,   0,   0,
-	        0,    0,   0, 1.0,   0,
-	        0,    0,   0,   0, 1.0;
-
-	// R << 0.05,    0,    0,
-	//         0, 0.05,    0,
-	// 		0,    0, 0.05;
-
-	age_ = totalVisibleCount_ = consecutiveInvisibleCount_ = 0;
-}
-
-void Cluster::measurement(const pcl::PointXYZ &p)
-{
-	// const int N = 20;
-	// Eigen::Vector3d vec; // 移動の向き(vec --> θ)
-	// double theta = 0.0;
-	// double linear;
-	// double angular;
-	// double curvature;
-	// static Differential v(p.x, p.y); // クラスごとに共有されてしまう
-	// static Differential w(theta, true);
-
-	// PrincipalComponentAnalysis pca; // staticだめ
-    //
-	// pca.setPoints2d(p, N);
-	// vec = pca.vector(0);
-	// curvature = pca.curvature();
-	// theta = atan2(vec(1), vec(0));
-    //
-	// double div = Binarion::deviation(theta, pca.direction());
-
-	// cout << "obs theta : " << theta*180/M_PI << endl;
-	// cout << "direction : " << pca.direction()*180/M_PI << endl;
-	// cout << "div : " << div * 180 / M_PI << endl;
-	
-	// if(div > M_PI / 2){
-	// 	theta += M_PI;
-	// }else if(div < - M_PI / 2){
-	// 	theta -= M_PI;
-	// }
-
-	// theta = pca.direction();
-
-	// cout << "obs theta : " << theta*180/M_PI << ", curvature : " << curvature << endl;
-	// cout << "direction : " << pca.direction()*180/M_PI << endl;
-	
-	// Eigen::Vector5d observe;
-	// cout << "observe :\n" << observe << endl;
-
-	// obs << p.x, p.y, theta;
-	// linear = v.get(p.x, p.y);
-	// angular = w.get(theta);
-
-	// if(linear > 5) linear = 5;
-	// linear = 1.0 - 2 * curvature;
-
-	// obs << p.x, p.y, theta, linear, angular;
-	// obs << p.x, p.y;
-
-	// x(2) = theta;
-	// x(3) = linear;
-
-	// cout << "obs :\n" << obs << endl;
-
-	// if(curvature < 0.05){
-	// 	R(2, 2) = R(0, 0) * 10;
-	// 	R(4, 4) = R(0, 0) * 100;
-	// }else if(curvature < 0.2){
-	// 	R(2, 2) = R(0, 0) * 100;
-	// 	R(4, 4) = R(0, 0) * 1000;
-	// }else{
-	// 	R(2, 2) = R(0, 0) * 1000;
-	// 	R(4, 4) = R(0, 0) * 10000;
-	// }
-}
-
-void Cluster::update()
-{
-	Eigen::Matrix5d I  = Eigen::Matrix5d::Identity();
-	// Eigen::Matrix3d I3 = Eigen::Matrix3d::Identity();
-	// Eigen::Matrix<double, 3, 5> H = ekf.jacobH(); //観測モデルのヤコビアン
-	Eigen::Matrix5d H = I;
-	// Eigen::Vector3d e = obs - ekf.h(x);
-	Eigen::Vector5d e = ekf.deviation(x, obs); //観測残差、innovation
-	// Eigen::Vector3d e = ekf.deviation(ekf.h(x), obs); //観測残差、innovation
-	// e(2) = mmath::acuteAngle(e(2));
-	Eigen::Matrix5d S = H * P * H.transpose() + R; // 観測残差の共分散
-	// Eigen::Matrix3d S = H * P * H.transpose() + R; // 観測残差の共分散
-	// Eigen::Matrix<double, 5, 2> K = P * H.transpose() * S.inverse(); // 最適 カルマンゲイン
-	Eigen::Matrix5d K = P * H.transpose() * S.colPivHouseholderQr().solve(I);
-	// Eigen::Matrix<double, 5, 3> K = P * H.transpose() * S.colPivHouseholderQr().solve(I3);
-
-	x = x + K * e; // 更新された状態の推定値
-	x = obs;
-	P = (I - K * H) * P; // 更新された誤差の共分散
-
-	cout << "K :\n" << K << endl;
-
-
-	totalVisibleCount_++;
-	consecutiveInvisibleCount_ = 0;
-
-	cout << "updated :\n" << x << endl;
+	initialize(p, sig_p, sig_r);
 }
 
 void Cluster::measurementUpdate(const pcl::PointXYZ &p)
 {
-	measurement(p);
-	update();
+	const int N = 5; //pcaで貯める点の数
+	pca.setPoints2d(p, N);
+
+	obs << p.x, p.y;
+
+	Eigen::Matrix4d I  = Eigen::Matrix4d::Identity();
+	Eigen::Matrix<double, 2, 4> H = kf.H(); //観測モデルのヤコビアン
+	Eigen::Vector2d e = obs - H * x; //観測残差、innovation
+	Eigen::Matrix2d S = H * P * H.transpose() + R; // 観測残差の共分散
+	Eigen::Matrix<double, 4, 2> K = P * H.transpose() * S.inverse(); // 最適 カルマンゲイン
+
+	x = x + K * e; // 更新された状態の推定値
+	P = (I - K * H) * P; // 更新された誤差の共分散
+
+	// cout << "K :\n" << K << endl;
+
+	totalVisibleCount_++;
+	consecutiveInvisibleCount_ = 0;
+
+	// cout << "updated :\n" << x << endl;
 }
 
 void Cluster::predict()
 {
-	// cout << "theta 3: " << x(2)*180/M_PI << ", omega : " << x(4) << endl;
-
-	// cout << "\np1 :\n" << P << endl;
-
 	current_time = ros::Time::now();
 	double dt = (current_time - last_time).toSec();
 	last_time = current_time;
 
-	// obs(3) = 
-	// obs(4) = obs(4) / dt;
-
-	Eigen::Matrix5d F = ekf.jacobF(x, dt); // 動作モデルのヤコビアン
-	// x = ekf.f(x, dt); // 時間発展動作モデル
-	P = F * P * F.transpose();
-	// x(2) = mmath::normAngle(x(2));
+	Eigen::Matrix4d F = kf.F(dt); // 動作モデルのヤコビアン
+	// Eigen::Matrix<double, 4, 2> G = kf.G(dt); // ノイズ(ax, ay)に関するモデル
+	// Eigen::Matrix4d Q = kf.Q(dt); // ノイズモデルの共分散行列
+	Eigen::Matrix4d Q = kf.covGw(dt); // G * Q * G.transpose();
+	x = F * x; // 時間発展動作モデル
+	P = F * P * F.transpose() + Q;
+	setY();
 
 	age_++;
 	consecutiveInvisibleCount_++;
 
-	cout << "predicted : \n" << x << endl;
+	// cout << "predicted : \n" << x << endl;
 }
 
 void Cluster::setParams()
@@ -266,7 +125,6 @@ double Cluster::getDist(const geometry_msgs::Point &point) const
 double Cluster::getDist(const pcl::PointXYZ &p) const
 {
 	return sqrt(pow(p.x - x(0), 2) + pow(p.y - x(1), 2));
-	// return sqrt(pow(p.x - position.x, 2) + pow(p.y - position.y, 2) + pow(p.z - position.z, 2));
 }
 
 double Cluster::getDist2ObsLast(const pcl::PointXYZ &p) const
@@ -299,16 +157,14 @@ double Cluster::getLikelihood()
 
 void Cluster::getTrackingPoint(pcl::PointCloud<pcl::PointNormal>::Ptr &pc, const int id)
 {
-	// if(likelihood < 0.1){
-		pcl::PointNormal pn;
+	pcl::PointNormal pn;
 
-		pn.x = x(0);
-		pn.y = x(1);
-		pn.z = 0.0;
-		pn.curvature = id;
+	pn.x = x(0);
+	pn.y = x(1);
+	pn.z = 0.0;
+	pn.curvature = id;
 
-		pc->points.push_back(pn);
-	// }
+	pc->points.push_back(pn);
 }
 
 void Cluster::getVelocityArrow(visualization_msgs::MarkerArray &markers, const int id)
@@ -330,11 +186,11 @@ void Cluster::getVelocityArrow(visualization_msgs::MarkerArray &markers, const i
 	arrow.pose.position.x = x(0);
 	arrow.pose.position.y = x(1);
 	arrow.pose.position.z = 0.0;
-	geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(x(2));
+	geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(y(1));
 	arrow.pose.orientation = odom_quat;
 
 	// arrow.scale.x = 1.0; // length
-	arrow.scale.x = x(3); // length
+	arrow.scale.x = y(0); // length
 	arrow.scale.y = 0.1; // width
 	arrow.scale.z = 0.1; // height
 
@@ -359,8 +215,6 @@ void Cluster::getErrorEllipse(visualization_msgs::MarkerArray &markers, const in
 
 	ellipse.type = visualization_msgs::Marker::CYLINDER;
 	ellipse.action = visualization_msgs::Marker::ADD;
-	// ellipse.action = visualization_msgs::Marker::DELETE;
-
 
 	double a, b;
 	geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(0.0);
@@ -437,5 +291,51 @@ ostream& operator << (ostream &os, const Cluster &cluster)
 	   << "    consecutiveInvisibleCount : " << cluster.consecutiveInvisibleCount_ << endl;
 
 	return os;
+}
+
+
+///////////////// private //////////////////////
+template<class T_p>
+void Cluster::initialize(const T_p& p, const double &sig_p, const double &sig_r)
+{
+	current_time = ros::Time::now();
+	last_time = ros::Time::now();
+
+	x << p.x, p.y, 0.0, 0.0;
+
+	obs << p.x, p.y;
+
+	P << sig_p,     0,     0,     0,
+	         0, sig_p,     0,     0,
+	         0,     0, 100.0,     0,
+	         0,     0,     0, 100.0;
+
+	R << sig_r,      0,
+	         0,  sig_r;
+}
+
+void Cluster::setY()
+{
+	// static Differential v(x(0), x(1)); // インスタンスごとではなくclassごとに共有されてしまう
+	
+	// y(0) = v.get(x(0), x(1));
+	// v_x = vx.get(x(0));
+	// v_y = vy.get(x(1));
+	y(0) = sqrt(pow(x(2), 2) + pow(x(3), 2));
+	// y(0) = sqrt(pow(v_x, 2) + pow(v_y, 2));
+
+	if(y(0) > 0.09){ // (1km/h : 0.2777m/s)
+		Eigen::Vector3d vec = pca.vector(0); // 移動の向き(vec --> θ) 
+		// y(1) = atan2(v_y, v_x);
+		y(1) = atan2(vec(1), vec(0));
+		double div = Binarion::deviation(y(1), pca.direction());
+
+		if(div > M_PI / 2){
+			y(1) += M_PI;
+		}else if(div < - M_PI / 2){
+			y(1) -= M_PI;
+		}
+	}
+	
 }
 
