@@ -26,6 +26,7 @@ class HumanTracker
 		sub = n.subscribe<sensor_msgs::PointCloud2>("/human_recognition/positive_position", 1,
 				&HumanTracker::humanCallback, this);
 
+		tracker.setStatic();
 		tracker.setIncrease();
 		tracker.setThresholdSame(0.8);
 		tracker.setThresholdErase(0.15);

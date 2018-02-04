@@ -10,7 +10,6 @@
 //
 
 #include <sensor_msgs/PointCloud2.h>
-#include <tf/transform_listener.h>
 #include <pcl/kdtree/impl/io.hpp>// for copyPointCloud
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl_conversions/pcl_conversions.h>
@@ -20,7 +19,8 @@
 using namespace std;
 
 Tracker::Tracker()
-	: sigma_p(0.05), sigma_r(0.1), SDTH(0.6), ELTH(0.5), frame_id("/map"), isIncrease(false)
+	: sigma_p(0.05), sigma_r(0.1), SDTH(0.6), ELTH(0.5), frame_id("/map"),
+	  isIncrease(false), isStatic(false)
 {
 	pub_track = n.advertise<sensor_msgs::PointCloud2>("/tracking_points", 1);
 	pub_arrow = n.advertise<visualization_msgs::MarkerArray>("/velocity_arrows", 1);
@@ -28,7 +28,7 @@ Tracker::Tracker()
 	pub_links = n.advertise<visualization_msgs::MarkerArray>("/link_lines", 1);
 
 	link.header.stamp = ros::Time::now();
-	link.header.frame_id = "/velodyne";
+	link.header.frame_id = "/map";
 
 	link.ns = "/cluster/links";
 	link.id = 0;
@@ -57,6 +57,16 @@ void Tracker::setIncrease(const bool flag)
 	isIncrease = flag;
 }
 
+void Tracker::setStatic()
+{
+	isStatic = true;
+}
+
+void Tracker::setStatic(const bool flag)
+{
+	isStatic = flag;
+}
+
 void Tracker::setSigma(const double &sig_p, const double &sig_r)
 {
 	sigma_p = sig_p;
@@ -78,17 +88,18 @@ void Tracker::setFrameID(const string frame_name)
 	frame_id = frame_name;
 }
 
-void Tracker::setPosition(const pcl::PointCloud<pcl::PointXYZ>::Ptr& pc)
+void Tracker::setPosition(const pcl::PointCloud<pcl::PointXYZ>::Ptr& pc_in)
 {
+	pcl::PointCloud<pcl::PointXYZ>::Ptr pc(new pcl::PointCloud<pcl::PointXYZ>);
 	int lifetime;
-	// transform(pc);
+	transform(pc_in, pc);
 	associate(pc);
 	update(pc);
 
 	auto it = clusters.begin();
 	while( it != clusters.end()){
 		it->second.predict();
-		if(it->second.getLikelihood() < ELTH ||
+		if(it->second.likelihood() < ELTH ||
 				(it->second.age() < 5 && 5 < it->second.consecutiveInvisibleCount()) ||
 				15 < it->second.consecutiveInvisibleCount()){
 			lifetime = it->second.getLifetime();
@@ -131,8 +142,12 @@ void Tracker::pubTrackingPoints()
 			it->second.getTrackingPoint(pc, it->first);
 		}
 	}
-	// pc->header.frame_id = "/map";
-	pc->header.frame_id = frame_id;
+	if(isStatic){
+		pc->header.frame_id = frame_id;
+	}else{
+		pc->header.frame_id = "/map";
+	}
+	// pc->header.frame_id = frame_id;
 	pcl::toROSMsg(*pc, pc2);
 	pc2.header.stamp = ros::Time::now();
 
@@ -228,16 +243,20 @@ int Tracker::getNewID()
 
 int Tracker::getCost(const Cluster& cluster, const pcl::PointXYZ& p)
 {
-	// virtual_cluster = cluster;
-	// // double pre_likelihood = virtual_cluster.getLikelihood();
-    //
-	// virtual_cluster.measurementUpdate(p);
-	// virtual_cluster.predict();
-    //
-	// // return 100 * cluster.getDist(p) + (virtual_cluster.getLikelihood() - pre_likelihood);
-	// // return 100 * cluster.getDist(p) + virtual_cluster.getLikelihood();
-	// return int(100.0 * cluster.getDist2ObsLast(p));
-	return int(100.0 * cluster.getDist(p));
+	Cluster vc(cluster); // virtual_cluster
+	double pre_likelihood = vc.likelihood();
+	double likelihood;
+
+	vc.measurementUpdate(p);
+	vc.predict();
+	likelihood = vc.getLikelihood();
+
+	double rate = (likelihood - pre_likelihood) / likelihood;
+	double dist = cluster.getDist(p);
+
+	// cout << "rate : " << rate << endl;
+	return int(100.0*dist + 10.0*dist*rate);
+	// return int(100.0*dist);
 }
 
 int Tracker::getCost(const Cluster& cluster)
@@ -362,36 +381,46 @@ void Tracker::update(const pcl::PointCloud<pcl::PointXYZ>::Ptr& pc)
 			itr->second.measurementUpdate(*it);
 		}else{
 			Cluster cluster(*it, sigma_p, sigma_r);
+			if(isStatic){
+				cluster.setFrameID(frame_id);
+			}
 			clusters[getNewID()] = cluster;
 		}
 	}
 }
 
-void Tracker::transform(pcl::PointCloud<pcl::PointXYZ>::Ptr& pc)
+void Tracker::transform(const pcl::PointCloud<pcl::PointXYZ>::Ptr& pc_in, pcl::PointCloud<pcl::PointXYZ>::Ptr& pc_out)
 {
-	if(frame_id == "/map" || frame_id == "map") return;
+	*pc_out = *pc_in;
 
-	tf::TransformListener listener;
-	// tf::StampedTransform transform;
+	if(isStatic || frame_id == "/map" || frame_id == "map") return;
+
+	ros::Time past_time;
+	pcl_conversions::fromPCL(pc_in->header.stamp, past_time);
+
+	// pcl::PointXYZ p;
+	tf::StampedTransform transform;
 	geometry_msgs::PointStamped ps_in, ps_out;
-	
+
 	ps_in.header.frame_id = frame_id;
-	// ps_in.header.stamp = ros::Time::now();
-    //
-	// ps_out.header.frame_id = frame_id;
-	// ps_out.header.stamp = ros::Time::now();
+	
 
 	try{
-		// listener.lookupTransform("/map", frame_id, ros::Time(0), transform);
-		for(auto it = pc->points.begin(); it != pc->points.end(); ++it){
+		// listener_.waitForTransform("/map", frame_id, past_time, ros::Duration(0.05));
+		// listener_.lookupTransform("/map", frame_id, past_time, transform);
+		for(auto it = pc_out->points.begin(); it != pc_out->points.end(); ++it){
 			ps_in.point.x = it->x;
 			ps_in.point.y = it->y;
 			ps_in.point.z = it->z;
-			listener.waitForTransform("/map", frame_id, ps_in.header.stamp, ros::Duration(1.0));
-			listener.transformPoint("/map", ps_in, ps_out);
+			listener_.waitForTransform("/map", frame_id, past_time, ros::Duration(0.05));
+			listener_.transformPoint("/map", ps_in, ps_out);
 			it->x = ps_out.point.x;
 			it->y = ps_out.point.y;
 			it->z = ps_out.point.z;
+			// p.x = it->x + transform.getOrigin().x();
+			// p.y = it->x + transform.getOrigin().y();
+			// p.z = 0.0;
+			// pc_out->points.push_back(p);
 		}
 	}catch(tf::TransformException ex){
 		ROS_ERROR("%s\n", ex.what());

@@ -15,6 +15,7 @@
 #define TRACKER_H
 
 // #include <unordered_map>
+#include <tf/transform_listener.h>
 #include "ekf_tracking/cluster_kf.h"
 
 class Tracker
@@ -28,6 +29,8 @@ class Tracker
 	visualization_msgs::Marker link;
 	visualization_msgs::MarkerArray links;
 
+	tf::TransformListener listener_;
+
 	std::map<int, Cluster> clusters; // 走査遅いからmap使うのよくない?
 	Cluster virtual_cluster;
 	double sigma_p; // conv of P(init)
@@ -37,6 +40,7 @@ class Tracker
 	std::string frame_id;
 	std::vector<int> neighbors;
 	bool isIncrease;
+	bool isStatic;
 
 	int getID(const int&);
 	int getNewID();
@@ -47,12 +51,14 @@ class Tracker
 	void hungarianSolve(Eigen::MatrixXi&);
 	void associate(const pcl::PointCloud<pcl::PointXYZ>::Ptr&);
 	void update(const pcl::PointCloud<pcl::PointXYZ>::Ptr&);
-	void transform(pcl::PointCloud<pcl::PointXYZ>::Ptr&);
+	void transform(const pcl::PointCloud<pcl::PointXYZ>::Ptr&, pcl::PointCloud<pcl::PointXYZ>::Ptr&);
 
 	public:
 	Tracker();
 	void setIncrease();
 	void setIncrease(const bool);
+	void setStatic();
+	void setStatic(const bool);
 	void setSigma(const double&, const double&); //init P, R
 	void setThresholdSame(const double&);
 	void setThresholdErase(const double&);

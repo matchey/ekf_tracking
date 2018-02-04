@@ -18,7 +18,8 @@
 using namespace std;
 
 Cluster::Cluster()
-	: likelihood(1.0), lifetime(10), age_(0), totalVisibleCount_(0), consecutiveInvisibleCount_(0)
+	: likelihood_(1.0), lifetime(10), age_(0), totalVisibleCount_(0), consecutiveInvisibleCount_(0),
+	  frame_id("/map")
 	  //, vx(x(0)), vy(x(1))
 {
 	geometry_msgs::Point p;
@@ -26,8 +27,27 @@ Cluster::Cluster()
 	initialize(p, 10.0, 0.01);
 }
 
+Cluster::Cluster(const Cluster& cluster)
+{
+	likelihood_ = cluster.likelihood_;
+	x = cluster.x;
+	P = cluster.P;
+	R = cluster.R;
+	obs = cluster.obs;
+	y = cluster.y;
+	lifetime = cluster.lifetime;
+	age_ = cluster.age_;
+	totalVisibleCount_ = cluster.totalVisibleCount_;
+	consecutiveInvisibleCount_ = cluster.consecutiveInvisibleCount_;
+	current_time = cluster.current_time;
+	last_time = cluster.last_time;
+	frame_id = cluster.frame_id;
+	// pca は共有できない
+}
+
 Cluster::Cluster(const pcl::PointXYZ &p, const double &sig_p, const double &sig_r)
-	: likelihood(1.0), lifetime(10), age_(0), totalVisibleCount_(0), consecutiveInvisibleCount_(0)
+	: likelihood_(1.0), lifetime(10), age_(0), totalVisibleCount_(0), consecutiveInvisibleCount_(0),
+	  frame_id("/map")
 	  //, vx(x(0)), vy(x(1))
 {
 	initialize(p, sig_p, sig_r);
@@ -35,7 +55,7 @@ Cluster::Cluster(const pcl::PointXYZ &p, const double &sig_p, const double &sig_
 
 void Cluster::measurementUpdate(const pcl::PointXYZ &p)
 {
-	const int N = 5; //pcaで貯める点の数
+	const int N = 10; //pcaで貯める点の数
 	pca.setPoints2d(p, N);
 
 	obs << p.x, p.y;
@@ -81,6 +101,11 @@ void Cluster::setParams()
 {
 }
 
+void Cluster::setFrameID(const string& frame_name)
+{
+	frame_id = frame_name;
+}
+
 void Cluster::setLifetime(const int life)
 {
 	lifetime = life;
@@ -88,7 +113,7 @@ void Cluster::setLifetime(const int life)
 
 void Cluster::setLikelihood(const double &sigma)
 {
-	likelihood = sigma;
+	likelihood_ = sigma;
 }
 
 int Cluster::age() const
@@ -150,9 +175,38 @@ void Cluster::getPoint(pcl::PointCloud<pcl::PointXYZ>::Ptr &pc)
 	pc->points.push_back(p);
 }
 
+double Cluster::likelihood()
+{
+	return likelihood_;
+}
+
 double Cluster::getLikelihood()
 {
-	return likelihood;
+	double a, b;
+	Eigen::Matrix2d m = P.block<2, 2>(0, 0);
+	Eigen::EigenSolver<Eigen::Matrix2d> es(m);
+	if(!es.info()){ // == "Success"
+		Eigen::Vector2d values = es.eigenvalues().real();
+		double lambda1, lambda2;
+		double kai2 = 9.21034; // χ² (chi-square) distribution 99% (95%:5.99146)
+		if(values(0) < values(1)){
+			lambda1 = values(1);
+			lambda2 = values(0);
+		}else{
+			lambda1 = values(0);
+			lambda2 = values(1);
+		}
+		a = sqrt(kai2 * lambda1);
+		b = sqrt(kai2 * lambda2);
+		if(a*b < 1e-5){
+			likelihood_ = 1e6;
+		}else{
+			likelihood_ = 10 / (a * b);
+		}
+	}else{
+		cerr << "Eigen solver error info : " << es.info() << endl;
+	}
+	return likelihood_;
 }
 
 void Cluster::getTrackingPoint(pcl::PointCloud<pcl::PointNormal>::Ptr &pc, const int id)
@@ -173,7 +227,7 @@ void Cluster::getVelocityArrow(visualization_msgs::MarkerArray &markers, const i
 
 	// marker.header.frame_id = "/map";
 	arrow.header.stamp = ros::Time::now();
-	arrow.header.frame_id = "/velodyne";
+	arrow.header.frame_id = frame_id;
 
 	arrow.ns = "/cluster/arrow";
 	arrow.id = id;
@@ -208,7 +262,7 @@ void Cluster::getErrorEllipse(visualization_msgs::MarkerArray &markers, const in
 {
 	visualization_msgs::Marker ellipse;
 	ellipse.header.stamp = ros::Time::now();
-	ellipse.header.frame_id = "/velodyne";
+	ellipse.header.frame_id = frame_id;
 
 	ellipse.ns = "/cluster/ellipse";
 	ellipse.id = id;
@@ -241,9 +295,9 @@ void Cluster::getErrorEllipse(visualization_msgs::MarkerArray &markers, const in
 		a = sqrt(kai2 * lambda1);
 		b = sqrt(kai2 * lambda2);
 		if(a*b < 1e-5){
-			likelihood = 1e6;
+			likelihood_ = 1e6;
 		}else{
-			likelihood = 10 / (a * b);
+			likelihood_ = 10 / (a * b);
 		}
 		ellipse.pose.position.x = x(0);
 		ellipse.pose.position.y = x(1);
@@ -285,7 +339,7 @@ void Cluster::getLinkLines(visualization_msgs::Marker& link, const pcl::PointXYZ
 ostream& operator << (ostream &os, const Cluster &cluster)
 {
 	os << "    position : (" << cluster.x(0) << ", " << cluster.x(1) << ")\n"
-	   << "    likelihood : " << cluster.likelihood << ", " 
+	   << "    likelihood : " << cluster.likelihood_ << ", " 
 	   << "    age : " << cluster.age_ << ", " 
 	   << "    totalVisibleCount : " << cluster.totalVisibleCount_ << ", " 
 	   << "    consecutiveInvisibleCount : " << cluster.consecutiveInvisibleCount_ << endl;

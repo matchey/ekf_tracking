@@ -142,7 +142,7 @@ SET(CMAKE_CXX_FLAGS "-std=c++11 -O2 -g -Wall ${CMAKE_CXX_FLAGS}")
 #   src/${PROJECT_NAME}/ekf_tracking.cpp
 # )
 # add_library(clsuster src/cluster.cpp src/ekf.cpp)
-add_library(tracker src/tracker src/cluster.cpp src/ekf.cpp)
+# add_library(tracker src/tracker src/cluster.cpp src/ekf.cpp)
 add_library(tracker_kf src/tracker src/cluster_kf.cpp src/kf.cpp)
 
 ## Add cmake target dependencies of the library
@@ -154,8 +154,9 @@ add_library(tracker_kf src/tracker src/cluster_kf.cpp src/kf.cpp)
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 # add_executable(${PROJECT_NAME}_node src/ekf_tracking_node.cpp)
-add_executable(test_tracking src/test.cpp src/tracker src/cluster.cpp src/ekf.cpp)
-add_executable(test_tracking_kf src/test_kf.cpp src/tracker_kf src/cluster_kf.cpp src/kf.cpp)
+# add_executable(test_tracking src/test.cpp src/tracker src/cluster.cpp src/ekf.cpp)
+add_executable(test_tracking_tf src/test_kf.cpp src/tracker_kf src/cluster_kf.cpp src/kf.cpp)
+add_executable(test_tracking_kf src/test_static.cpp src/tracker_kf src/cluster_kf.cpp src/kf.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -171,7 +172,8 @@ add_executable(test_tracking_kf src/test_kf.cpp src/tracker_kf src/cluster_kf.cp
 # target_link_libraries(${PROJECT_NAME}_node
 #   ${catkin_LIBRARIES}
 # )
-target_link_libraries(test_tracking binarion pca differential ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(test_tracking binarion pca differential ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(test_tracking_tf binarion pca differential ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 target_link_libraries(test_tracking_kf binarion pca differential ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 #############
